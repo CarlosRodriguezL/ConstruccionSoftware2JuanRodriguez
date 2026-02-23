@@ -4,9 +4,9 @@ import clinic.enums.Gender;
 
 public class Patient extends Person {
 
-    private Gender gender;
-    private Contact emergencyContact;
-    private Policy policy;
+	private Gender gender;
+	private Contact emergencyContact;
+	private Policy policy;
 	public Gender getGender() {
 		return gender;
 	}
@@ -28,11 +28,11 @@ public class Patient extends Person {
 	}
 
 	public void setIdNumber(String idNumber) {
-    this.idNumber = idNumber;
-}
+	this.idNumber = idNumber;
+	}
 
-public void setFullName(String fullName) {
-    this.fullName = fullName;
-}
+	public void setFullName(String fullName) {
+	this.fullName = fullName;
+	}
     
 }

@@ -7,5 +7,4 @@ public enum OrderItemType {
 	COPAY,
 	INSURANCE_CHARGE,
 	PATIENT_CHARGE
-
 }
