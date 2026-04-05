@@ -1,0 +1,110 @@
+package domain.services;
+
+import domain.enums.UserRole;
+import domain.enums.UserStatus;
+import domain.exceptions.BusinessException;
+import domain.model.AuditLog;
+import domain.model.Loan;
+import domain.model.User;
+import domain.ports.LoanPort;
+import domain.ports.OperationLogPort;
+import domain.ports.ProductCatalogPort;
+import domain.ports.UserPort;
+
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+
+public class CreateLoan {
+
+    private final LoanPort loanPort;
+    private final UserPort userPort;
+    private final ProductCatalogPort productCatalogPort;
+    private final OperationLogPort operationLogPort;
+    private final DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm:ss");
+
+    public CreateLoan(LoanPort loanPort,
+                      UserPort userPort,
+                      ProductCatalogPort productCatalogPort,
+                      OperationLogPort operationLogPort) {
+        this.loanPort = loanPort;
+        this.userPort = userPort;
+        this.productCatalogPort = productCatalogPort;
+        this.operationLogPort = operationLogPort;
+    }
+
+    public Loan execute(Loan loan, User requestingUser) {
+        if (loan == null) {
+            throw new BusinessException("El préstamo es obligatorio");
+        }
+
+        if (requestingUser == null) {
+            throw new BusinessException("El usuario es obligatorio");
+        }
+
+        if (requestingUser.getStatus() != UserStatus.ACTIVE) {
+            throw new BusinessException("El usuario no está activo");
+        }
+
+        if (requestingUser.getRole() != UserRole.NATURAL_PERSON_CLIENT &&
+            requestingUser.getRole() != UserRole.COMPANY_CLIENT &&
+            requestingUser.getRole() != UserRole.COMMERCIAL_EMPLOYEE) {
+            throw new BusinessException("No tiene permisos para solicitar préstamos");
+        }
+
+        User client = userPort.findByIdentification(loan.getClientId());
+        if (client == null) {
+            throw new BusinessException("El cliente solicitante no existe");
+        }
+
+        if (client.getStatus() != UserStatus.ACTIVE) {
+            throw new BusinessException("El cliente solicitante no está activo");
+        }
+
+        if (requestingUser.getRole() != UserRole.COMMERCIAL_EMPLOYEE &&
+            !loan.getClientId().equals(requestingUser.getIdentificationNumber())) {
+            throw new BusinessException("Solo puede solicitar préstamos para sí mismo");
+        }
+
+        if (loan.getLoanType() == null) {
+            throw new BusinessException("El tipo de préstamo es obligatorio");
+        }
+
+        if (!productCatalogPort.isValidLoanType(loan.getLoanType().name())) {
+            throw new BusinessException("El tipo de préstamo no es válido según el catálogo");
+        }
+
+        if (loan.getRequestedAmount() <= 0) {
+            throw new BusinessException("El monto solicitado debe ser mayor a cero");
+        }
+
+        if (loan.getInterestRate() <= 0) {
+            throw new BusinessException("La tasa de interés debe ser mayor a cero");
+        }
+
+        if (loan.getTermMonths() <= 0) {
+            throw new BusinessException("El plazo del préstamo debe ser mayor a cero");
+        }
+
+        loanPort.save(loan);
+
+        String detail = "{ " +
+                "\"loanType\": \"" + loan.getLoanType() + "\", " +
+                "\"requestedAmount\": " + loan.getRequestedAmount() + ", " +
+                "\"interestRate\": " + loan.getInterestRate() + ", " +
+                "\"termMonths\": " + loan.getTermMonths() + ", " +
+                "\"status\": \"" + loan.getLoanStatus() + "\"" +
+                " }";
+
+        operationLogPort.save(new AuditLog(
+                "LOG-" + System.currentTimeMillis(),
+                "LOAN_CREATED",
+                LocalDateTime.now().format(formatter),
+                requestingUser.getUserId(),
+                requestingUser.getRole().name(),
+                String.valueOf(loan.getLoanId()),
+                detail
+        ));
+
+        return loan;
+    }
+}

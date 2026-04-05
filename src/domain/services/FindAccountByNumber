@@ -1,0 +1,60 @@
+package domain.services;
+
+import domain.enums.UserRole;
+import domain.enums.UserStatus;
+import domain.exceptions.BusinessException;
+import domain.model.BankAccount;
+import domain.model.User;
+import domain.ports.AccountPort;
+import domain.ports.CompanyAccessPort;
+
+public class FindAccountByNumber {
+
+    private final AccountPort accountPort;
+    private final CompanyAccessPort companyAccessPort;
+
+    public FindAccountByNumber(AccountPort accountPort, CompanyAccessPort companyAccessPort) {
+        this.accountPort = accountPort;
+        this.companyAccessPort = companyAccessPort;
+    }
+
+    public BankAccount execute(String accountNumber, User requestingUser) {
+        if (accountNumber == null || accountNumber.trim().isEmpty()) {
+            throw new BusinessException("El número de cuenta es obligatorio");
+        }
+
+        if (requestingUser == null) {
+            throw new BusinessException("El usuario es obligatorio");
+        }
+
+        if (requestingUser.getStatus() != UserStatus.ACTIVE) {
+            throw new BusinessException("El usuario no está activo");
+        }
+
+        BankAccount account = accountPort.findByAccountNumber(accountNumber);
+
+        if (account == null) {
+            throw new BusinessException("Cuenta no encontrada");
+        }
+
+        if (requestingUser.getRole() == UserRole.INTERNAL_ANALYST ||
+            requestingUser.getRole() == UserRole.TELLER_EMPLOYEE ||
+            requestingUser.getRole() == UserRole.COMMERCIAL_EMPLOYEE) {
+            return account;
+        }
+
+        if (requestingUser.getRole() == UserRole.NATURAL_PERSON_CLIENT &&
+            account.getHolderId().equals(requestingUser.getIdentificationNumber())) {
+            return account;
+        }
+
+        if ((requestingUser.getRole() == UserRole.COMPANY_CLIENT ||
+             requestingUser.getRole() == UserRole.COMPANY_EMPLOYEE ||
+             requestingUser.getRole() == UserRole.COMPANY_SUPERVISOR) &&
+            companyAccessPort.userCanOperateAccount(requestingUser.getUserId(), accountNumber)) {
+            return account;
+        }
+
+        throw new BusinessException("No tiene permisos para consultar esta cuenta");
+    }
+}

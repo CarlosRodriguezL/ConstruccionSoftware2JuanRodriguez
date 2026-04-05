@@ -1,0 +1,8 @@
+public interface TransferPort {
+    void save(Transfer transfer);
+    void update(Transfer transfer);
+    Transfer findById(int transferId);
+    List<Transfer> findByCreatorUserId(int creatorUserId);
+    List<Transfer> findWaitingApproval();
+    boolean existsById(int transferId);
+}

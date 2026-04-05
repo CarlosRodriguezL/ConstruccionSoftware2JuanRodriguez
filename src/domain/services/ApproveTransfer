@@ -1,0 +1,107 @@
+package domain.services;
+
+import domain.enums.TransferStatus;
+import domain.enums.UserRole;
+import domain.enums.UserStatus;
+import domain.exceptions.BusinessException;
+import domain.model.AuditLog;
+import domain.model.BankAccount;
+import domain.model.Transfer;
+import domain.model.User;
+import domain.ports.AccountPort;
+import domain.ports.CompanyAccessPort;
+import domain.ports.OperationLogPort;
+import domain.ports.TransferPort;
+
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+
+public class ApproveTransfer {
+
+    private final TransferPort transferPort;
+    private final AccountPort accountPort;
+    private final CompanyAccessPort companyAccessPort;
+    private final OperationLogPort operationLogPort;
+    private final DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm:ss");
+
+    public ApproveTransfer(TransferPort transferPort,
+                           AccountPort accountPort,
+                           CompanyAccessPort companyAccessPort,
+                           OperationLogPort operationLogPort) {
+        this.transferPort = transferPort;
+        this.accountPort = accountPort;
+        this.companyAccessPort = companyAccessPort;
+        this.operationLogPort = operationLogPort;
+    }
+
+    public void execute(int transferId, User supervisor) {
+        if (supervisor == null) {
+            throw new BusinessException("El usuario es obligatorio");
+        }
+
+        if (supervisor.getStatus() != UserStatus.ACTIVE) {
+            throw new BusinessException("El usuario no está activo");
+        }
+
+        if (supervisor.getRole() != UserRole.COMPANY_SUPERVISOR) {
+            throw new BusinessException("Solo el supervisor de empresa puede aprobar esta transferencia");
+        }
+
+        Transfer transfer = transferPort.findById(transferId);
+        if (transfer == null) {
+            throw new BusinessException("Transferencia no encontrada");
+        }
+
+        if (transfer.getTransferStatus() != TransferStatus.WAITING_APPROVAL) {
+            throw new BusinessException("La transferencia no está en espera de aprobación");
+        }
+
+        if (!companyAccessPort.userCanApproveTransfer(supervisor.getUserId(), transferId)) {
+            throw new BusinessException("No tiene permisos para aprobar esta transferencia");
+        }
+
+        BankAccount origin = accountPort.findByAccountNumber(transfer.getOriginAccount());
+        BankAccount destination = accountPort.findByAccountNumber(transfer.getDestinationAccount());
+
+        if (origin == null || destination == null) {
+            throw new BusinessException("La cuenta origen o destino no existe");
+        }
+
+        if (origin.getCurrentBalance() < transfer.getAmount()) {
+            throw new BusinessException("Saldo insuficiente en la cuenta origen");
+        }
+
+        double beforeOrigin = origin.getCurrentBalance();
+        double beforeDestination = destination.getCurrentBalance();
+
+        origin.withdraw(transfer.getAmount());
+        destination.deposit(transfer.getAmount());
+
+        accountPort.update(origin);
+        accountPort.update(destination);
+
+        transfer.setTransferStatus(TransferStatus.EXECUTED);
+        transfer.setApprovalDateTime(LocalDateTime.now().format(formatter));
+        transfer.setApproverUserId(supervisor.getUserId());
+        transferPort.update(transfer);
+
+        String detail = "{ " +
+                "\"amount\": " + transfer.getAmount() + ", " +
+                "\"beforeOrigin\": " + beforeOrigin + ", " +
+                "\"afterOrigin\": " + origin.getCurrentBalance() + ", " +
+                "\"beforeDestination\": " + beforeDestination + ", " +
+                "\"afterDestination\": " + destination.getCurrentBalance() + ", " +
+                "\"approverUserId\": " + supervisor.getUserId() +
+                " }";
+
+        operationLogPort.save(new AuditLog(
+                "LOG-" + System.currentTimeMillis(),
+                "TRANSFER_APPROVED_AND_EXECUTED",
+                LocalDateTime.now().format(formatter),
+                supervisor.getUserId(),
+                supervisor.getRole().name(),
+                String.valueOf(transferId),
+                detail
+        ));
+    }
+}

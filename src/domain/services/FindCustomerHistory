@@ -1,0 +1,56 @@
+package domain.services;
+
+import domain.enums.UserRole;
+import domain.enums.UserStatus;
+import domain.exceptions.BusinessException;
+import domain.model.AuditLog;
+import domain.model.User;
+import domain.ports.CompanyAccessPort;
+import domain.ports.OperationLogPort;
+import domain.ports.UserPort;
+
+import java.util.List;
+
+public class FindCustomerHistory {
+
+    private final OperationLogPort operationLogPort;
+    private final UserPort userPort;
+    private final CompanyAccessPort companyAccessPort;
+
+    public FindCustomerHistory(OperationLogPort operationLogPort,
+                               UserPort userPort,
+                               CompanyAccessPort companyAccessPort) {
+        this.operationLogPort = operationLogPort;
+        this.userPort = userPort;
+        this.companyAccessPort = companyAccessPort;
+    }
+
+    public List<AuditLog> execute(String userIdentification, String affectedProductId) {
+        if (userIdentification == null || userIdentification.trim().isEmpty()) {
+            throw new BusinessException("La identificación del usuario es obligatoria");
+        }
+
+        if (affectedProductId == null || affectedProductId.trim().isEmpty()) {
+            throw new BusinessException("El ID del producto afectado es obligatorio");
+        }
+
+        User requestingUser = userPort.findByIdentification(userIdentification);
+        if (requestingUser == null) {
+            throw new BusinessException("El usuario no existe");
+        }
+
+        if (requestingUser.getStatus() != UserStatus.ACTIVE) {
+            throw new BusinessException("El usuario no está activo");
+        }
+
+        if (requestingUser.getRole() == UserRole.INTERNAL_ANALYST) {
+            return operationLogPort.findByAffectedProductId(affectedProductId);
+        }
+
+        if (!companyAccessPort.userCanViewProduct(requestingUser.getUserId(), affectedProductId)) {
+            throw new BusinessException("No tiene permisos para consultar el historial de este producto");
+        }
+
+        return operationLogPort.findByAffectedProductId(affectedProductId);
+    }
+}

@@ -1,0 +1,82 @@
+package domain.services;
+
+import domain.enums.LoanStatus;
+import domain.enums.UserRole;
+import domain.enums.UserStatus;
+import domain.exceptions.BusinessException;
+import domain.model.AuditLog;
+import domain.model.Loan;
+import domain.model.User;
+import domain.ports.LoanPort;
+import domain.ports.OperationLogPort;
+
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+
+public class ApproveLoan {
+
+    private final LoanPort loanPort;
+    private final OperationLogPort operationLogPort;
+    private final DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm:ss");
+    private final DateTimeFormatter dateFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy");
+
+    public ApproveLoan(LoanPort loanPort, OperationLogPort operationLogPort) {
+        this.loanPort = loanPort;
+        this.operationLogPort = operationLogPort;
+    }
+
+    public void execute(int loanId, double approvedAmount, User analyst) {
+        if (analyst == null) {
+            throw new BusinessException("El usuario es obligatorio");
+        }
+
+        if (analyst.getStatus() != UserStatus.ACTIVE) {
+            throw new BusinessException("El usuario no está activo");
+        }
+
+        if (analyst.getRole() != UserRole.INTERNAL_ANALYST) {
+            throw new BusinessException("Solo el analista interno puede aprobar préstamos");
+        }
+
+        Loan loan = loanPort.findById(loanId);
+        if (loan == null) {
+            throw new BusinessException("Préstamo no encontrado");
+        }
+
+        if (loan.getLoanStatus() != LoanStatus.UNDER_STUDY) {
+            throw new BusinessException("Solo se puede aprobar un préstamo en estado UNDER_STUDY");
+        }
+
+        if (approvedAmount <= 0) {
+            throw new BusinessException("El monto aprobado debe ser mayor a cero");
+        }
+
+        if (approvedAmount > loan.getRequestedAmount()) {
+            throw new BusinessException("El monto aprobado no puede ser mayor al solicitado");
+        }
+
+        loan.setApprovedAmount(approvedAmount);
+        loan.setLoanStatus(LoanStatus.APPROVED);
+        loan.setApprovalDate(LocalDate.now().format(dateFormatter));
+        loanPort.update(loan);
+
+        String detail = "{ " +
+                "\"previousStatus\": \"UNDER_STUDY\", " +
+                "\"newStatus\": \"APPROVED\", " +
+                "\"approvedAmount\": " + approvedAmount + ", " +
+                "\"interestRate\": " + loan.getInterestRate() + ", " +
+                "\"analystId\": " + analyst.getUserId() +
+                " }";
+
+        operationLogPort.save(new AuditLog(
+                "LOG-" + System.currentTimeMillis(),
+                "LOAN_APPROVED",
+                LocalDateTime.now().format(formatter),
+                analyst.getUserId(),
+                analyst.getRole().name(),
+                String.valueOf(loanId),
+                detail
+        ));
+    }
+}

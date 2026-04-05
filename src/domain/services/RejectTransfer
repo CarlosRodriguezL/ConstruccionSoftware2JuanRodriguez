@@ -1,0 +1,79 @@
+package domain.services;
+
+import domain.enums.TransferStatus;
+import domain.enums.UserRole;
+import domain.enums.UserStatus;
+import domain.exceptions.BusinessException;
+import domain.model.AuditLog;
+import domain.model.Transfer;
+import domain.model.User;
+import domain.ports.CompanyAccessPort;
+import domain.ports.OperationLogPort;
+import domain.ports.TransferPort;
+
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+
+public class RejectTransfer {
+
+    private final TransferPort transferPort;
+    private final CompanyAccessPort companyAccessPort;
+    private final OperationLogPort operationLogPort;
+    private final DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm:ss");
+
+    public RejectTransfer(TransferPort transferPort,
+                          CompanyAccessPort companyAccessPort,
+                          OperationLogPort operationLogPort) {
+        this.transferPort = transferPort;
+        this.companyAccessPort = companyAccessPort;
+        this.operationLogPort = operationLogPort;
+    }
+
+    public void execute(int transferId, User supervisor) {
+        if (supervisor == null) {
+            throw new BusinessException("El usuario es obligatorio");
+        }
+
+        if (supervisor.getStatus() != UserStatus.ACTIVE) {
+            throw new BusinessException("El usuario no está activo");
+        }
+
+        if (supervisor.getRole() != UserRole.COMPANY_SUPERVISOR) {
+            throw new BusinessException("Solo el supervisor de empresa puede rechazar esta transferencia");
+        }
+
+        Transfer transfer = transferPort.findById(transferId);
+        if (transfer == null) {
+            throw new BusinessException("Transferencia no encontrada");
+        }
+
+        if (transfer.getTransferStatus() != TransferStatus.WAITING_APPROVAL) {
+            throw new BusinessException("La transferencia no está en espera de aprobación");
+        }
+
+        if (!companyAccessPort.userCanApproveTransfer(supervisor.getUserId(), transferId)) {
+            throw new BusinessException("No tiene permisos para rechazar esta transferencia");
+        }
+
+        transfer.setTransferStatus(TransferStatus.REJECTED);
+        transfer.setApprovalDateTime(LocalDateTime.now().format(formatter));
+        transfer.setApproverUserId(supervisor.getUserId());
+        transferPort.update(transfer);
+
+        String detail = "{ " +
+                "\"previousStatus\": \"WAITING_APPROVAL\", " +
+                "\"newStatus\": \"REJECTED\", " +
+                "\"approverUserId\": " + supervisor.getUserId() +
+                " }";
+
+        operationLogPort.save(new AuditLog(
+                "LOG-" + System.currentTimeMillis(),
+                "TRANSFER_REJECTED",
+                LocalDateTime.now().format(formatter),
+                supervisor.getUserId(),
+                supervisor.getRole().name(),
+                String.valueOf(transferId),
+                detail
+        ));
+    }
+}

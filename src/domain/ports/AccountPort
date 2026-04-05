@@ -1,0 +1,7 @@
+public interface AccountPort {
+    void save(BankAccount account);
+    void update(BankAccount account);
+    BankAccount findByAccountNumber(String accountNumber);
+    List<BankAccount> findByHolderId(String holderId);
+    boolean existsByAccountNumber(String accountNumber);
+}

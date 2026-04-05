@@ -1,0 +1,68 @@
+package domain.services;
+
+import domain.enums.LoanStatus;
+import domain.enums.UserRole;
+import domain.enums.UserStatus;
+import domain.exceptions.BusinessException;
+import domain.model.AuditLog;
+import domain.model.Loan;
+import domain.model.User;
+import domain.ports.LoanPort;
+import domain.ports.OperationLogPort;
+
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+
+public class RejectLoan {
+
+    private final LoanPort loanPort;
+    private final OperationLogPort operationLogPort;
+    private final DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm:ss");
+
+    public RejectLoan(LoanPort loanPort, OperationLogPort operationLogPort) {
+        this.loanPort = loanPort;
+        this.operationLogPort = operationLogPort;
+    }
+
+    public void execute(int loanId, User analyst) {
+        if (analyst == null) {
+            throw new BusinessException("El usuario es obligatorio");
+        }
+
+        if (analyst.getStatus() != UserStatus.ACTIVE) {
+            throw new BusinessException("El usuario no está activo");
+        }
+
+        if (analyst.getRole() != UserRole.INTERNAL_ANALYST) {
+            throw new BusinessException("Solo el analista interno puede rechazar préstamos");
+        }
+
+        Loan loan = loanPort.findById(loanId);
+        if (loan == null) {
+            throw new BusinessException("Préstamo no encontrado");
+        }
+
+        if (loan.getLoanStatus() != LoanStatus.UNDER_STUDY) {
+            throw new BusinessException("Solo se puede rechazar un préstamo en estado UNDER_STUDY");
+        }
+
+        loan.setLoanStatus(LoanStatus.REJECTED);
+        loanPort.update(loan);
+
+        String detail = "{ " +
+                "\"previousStatus\": \"UNDER_STUDY\", " +
+                "\"newStatus\": \"REJECTED\", " +
+                "\"analystId\": " + analyst.getUserId() +
+                " }";
+
+        operationLogPort.save(new AuditLog(
+                "LOG-" + System.currentTimeMillis(),
+                "LOAN_REJECTED",
+                LocalDateTime.now().format(formatter),
+                analyst.getUserId(),
+                analyst.getRole().name(),
+                String.valueOf(loanId),
+                detail
+        ));
+    }
+}

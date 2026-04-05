@@ -1,0 +1,81 @@
+package domain.services;
+
+import domain.enums.AccountStatus;
+import domain.enums.UserRole;
+import domain.enums.UserStatus;
+import domain.exceptions.BusinessException;
+import domain.model.AuditLog;
+import domain.model.BankAccount;
+import domain.model.User;
+import domain.ports.AccountPort;
+import domain.ports.OperationLogPort;
+
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+
+public class DepositMoney {
+
+    private final AccountPort accountPort;
+    private final OperationLogPort operationLogPort;
+    private final DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm:ss");
+
+    public DepositMoney(AccountPort accountPort, OperationLogPort operationLogPort) {
+        this.accountPort = accountPort;
+        this.operationLogPort = operationLogPort;
+    }
+
+    public void execute(String accountNumber, double amount, User requestingUser) {
+        if (requestingUser == null) {
+            throw new BusinessException("El usuario es obligatorio");
+        }
+
+        if (requestingUser.getStatus() != UserStatus.ACTIVE) {
+            throw new BusinessException("El usuario no está activo");
+        }
+
+        if (requestingUser.getRole() != UserRole.TELLER_EMPLOYEE) {
+            throw new BusinessException("Solo el empleado de ventanilla puede realizar depósitos");
+        }
+
+        if (accountNumber == null || accountNumber.trim().isEmpty()) {
+            throw new BusinessException("El número de cuenta es obligatorio");
+        }
+
+        if (amount <= 0) {
+            throw new BusinessException("El monto debe ser mayor a cero");
+        }
+
+        BankAccount account = accountPort.findByAccountNumber(accountNumber);
+
+        if (account == null) {
+            throw new BusinessException("Cuenta no encontrada");
+        }
+
+        if (account.getAccountStatus() != AccountStatus.ACTIVE) {
+            throw new BusinessException("Solo se puede depositar en cuentas activas");
+        }
+
+        double before = account.getCurrentBalance();
+        account.deposit(amount);
+        accountPort.update(account);
+
+        String details =
+                "{ " +
+                "\"amount\": " + amount + ", " +
+                "\"before\": " + before + ", " +
+                "\"after\": " + account.getCurrentBalance() +
+                " }";
+
+        AuditLog log = new AuditLog(
+                "LOG-" + System.currentTimeMillis(),
+                "DEPOSIT",
+                LocalDateTime.now().format(formatter),
+                requestingUser.getUserId(),
+                requestingUser.getRole().name(),
+                account.getAccountNumber(),
+                details
+        );
+
+        operationLogPort.save(log);
+    }
+}

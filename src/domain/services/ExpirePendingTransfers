@@ -1,0 +1,55 @@
+package domain.services;
+
+import domain.enums.TransferStatus;
+import domain.model.AuditLog;
+import domain.model.Transfer;
+import domain.ports.OperationLogPort;
+import domain.ports.TransferPort;
+
+import java.time.Duration;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.List;
+
+public class ExpirePendingTransfers {
+
+    private final TransferPort transferPort;
+    private final OperationLogPort operationLogPort;
+    private final DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm:ss");
+
+    public ExpirePendingTransfers(TransferPort transferPort, OperationLogPort operationLogPort) {
+        this.transferPort = transferPort;
+        this.operationLogPort = operationLogPort;
+    }
+
+    public void execute() {
+        List<Transfer> waitingTransfers = transferPort.findWaitingApproval();
+        LocalDateTime now = LocalDateTime.now();
+
+        for (Transfer transfer : waitingTransfers) {
+            LocalDateTime creationTime = LocalDateTime.parse(transfer.getCreationDateTime(), formatter);
+            long minutes = Duration.between(creationTime, now).toMinutes();
+
+            if (minutes > 60) {
+                transfer.setTransferStatus(TransferStatus.EXPIRED);
+                transferPort.update(transfer);
+
+                String detail = "{ " +
+                        "\"reason\": \"Falta de aprobación a tiempo\", " +
+                        "\"expiredAt\": \"" + now.format(formatter) + "\", " +
+                        "\"creatorUserId\": " + transfer.getCreatorUserId() +
+                        " }";
+
+                operationLogPort.save(new AuditLog(
+                        "LOG-" + System.currentTimeMillis(),
+                        "TRANSFER_EXPIRED",
+                        now.format(formatter),
+                        transfer.getCreatorUserId(),
+                        "SYSTEM_EVENT",
+                        String.valueOf(transfer.getTransferId()),
+                        detail
+                ));
+            }
+        }
+    }
+}

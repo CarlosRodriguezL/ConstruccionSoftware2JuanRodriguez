@@ -1,0 +1,6 @@
+public interface OperationLogPort {
+    void save(OperationLog log);
+    List<OperationLog> findByAffectedProductId(String affectedProductId);
+    List<OperationLog> findByUserId(int userId);
+    List<OperationLog> findAll();
+}

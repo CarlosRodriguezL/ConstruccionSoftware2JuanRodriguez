@@ -1,0 +1,5 @@
+public interface CompanyAccessPort {
+    boolean userBelongsToCompany(int userId, String companyId);
+    boolean accountBelongsToCompany(String accountNumber, String companyId);
+    boolean canApproveCompanyTransfer(int supervisorUserId, int transferId);
+}

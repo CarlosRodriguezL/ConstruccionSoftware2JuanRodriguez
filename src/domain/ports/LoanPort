@@ -1,0 +1,7 @@
+public interface LoanPort {
+    void save(Loan loan);
+    void update(Loan loan);
+    Loan findById(int loanId);
+    List<Loan> findByClientId(String clientId);
+    boolean existsById(int loanId);
+}
